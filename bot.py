@@ -3,7 +3,7 @@ import logging
 import os
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.constants import ChatAction
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, CallbackQueryHandler,
@@ -111,6 +111,14 @@ async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def safe_edit_message_text(query, text: str, reply_markup=None, parse_mode="Markdown"):
+    try:
+        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    except Exception as e:
+        if "Message is not modified" not in str(e):
+            logger.warning("edit_message_text failed: %s", e)
+
+
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -120,10 +128,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("model:"):
         model_id = data.split(":", 1)[1]
         if model_id not in MODELS:
-            await query.edit_message_text("That model is not configured.")
+            await safe_edit_message_text(query, "That model is not configured.")
             return
         await asyncio.to_thread(set_model, key, model_id)
-        await query.edit_message_text(
+        await safe_edit_message_text(
+            query,
             f"✅ Model changed to **{MODELS[model_id]['name']}**.",
             reply_markup=main_menu_keyboard(),
             parse_mode="Markdown",
@@ -137,27 +146,31 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             label = f"{'✓ ' if model_id == current else ''}{info['name']}"
             rows.append([InlineKeyboardButton(label, callback_data=f"model:{model_id}")])
         rows.append([InlineKeyboardButton("🔙 Back to Menu", callback_data="btn:menu")])
-        await query.edit_message_text(
+        await safe_edit_message_text(
+            query,
             f"⚙️ **Choose a Gemini model**\nCurrent: `{current}`",
             reply_markup=InlineKeyboardMarkup(rows),
             parse_mode="Markdown",
         )
     elif data == "btn:new":
         await asyncio.to_thread(clear_history, key)
-        await query.edit_message_text(
+        await safe_edit_message_text(
+            query,
             "🆕 **New conversation started.** What would you like to talk about?",
             reply_markup=main_menu_keyboard(),
             parse_mode="Markdown",
         )
     elif data == "btn:clear":
         await asyncio.to_thread(clear_history, key)
-        await query.edit_message_text(
+        await safe_edit_message_text(
+            query,
             "🧹 **Your conversation history has been cleared.**",
             reply_markup=main_menu_keyboard(),
             parse_mode="Markdown",
         )
     elif data == "btn:help":
-        await query.edit_message_text(
+        await safe_edit_message_text(
+            query,
             "ℹ️ **Elena AI Help & Quick Actions**\n\n"
             "• Send text in any language to chat.\n"
             "• Send photos or voice notes for multimodal understanding.\n"
@@ -166,7 +179,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
         )
     elif data == "btn:menu":
-        await query.edit_message_text(
+        await safe_edit_message_text(
+            query,
             "👋 **Elena AI Menu**\n\nTap a button below to get started:",
             reply_markup=main_menu_keyboard(),
             parse_mode="Markdown",
@@ -295,12 +309,27 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error("Unhandled error: %s", context.error)
 
 
+async def post_init(application: Application):
+    commands = [
+        BotCommand("start", "Start Elena AI & show menu"),
+        BotCommand("settings", "Choose Gemini AI model"),
+        BotCommand("new", "Start a new conversation"),
+        BotCommand("clear", "Clear conversation history"),
+        BotCommand("help", "Help & instructions"),
+    ]
+    try:
+        await application.bot.set_my_commands(commands)
+        logger.info("Bot commands registered with Telegram [/] menu.")
+    except Exception as e:
+        logger.warning("Failed to register bot commands with Telegram: %s", e)
+
+
 def main():
     if not TELEGRAM_BOT_TOKEN:
         raise RuntimeError("TELEGRAM_BOT_TOKEN is missing. Set it in your .env file.")
     init_db()
     start_health_server()
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    app = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
