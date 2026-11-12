@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: elena-ai
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: GEMINI_API_KEYS
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: MAX_HISTORY
+        value: 20
