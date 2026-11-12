@@ -55,21 +55,45 @@ def conversation_key(update: Update) -> str:
     return f"{update.effective_chat.id}:{update.effective_user.id}"
 
 
+def main_menu_keyboard() -> InlineKeyboardMarkup:
+    keyboard = [
+        [
+            InlineKeyboardButton("⚙️ Choose Model", callback_data="btn:settings"),
+            InlineKeyboardButton("🆕 New Chat", callback_data="btn:new"),
+        ],
+        [
+            InlineKeyboardButton("🧹 Clear History", callback_data="btn:clear"),
+            InlineKeyboardButton("ℹ️ Help", callback_data="btn:help"),
+        ],
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
-        "👋 Hello! I'm Elena AI, powered by Google Gemini.\n\n"
+        "👋 **Hello! I'm Elena AI**, powered by Google Gemini.\n\n"
         "Send me a message in any language and I'll do my best to help.\n\n"
-        "Commands:\n"
-        "/settings - choose a Gemini model\n"
-        "/new - start a new conversation\n"
-        "/clear - clear conversation history\n"
-        "/help - show help"
+        "Tap a button below to get started:"
     )
-    await update.effective_message.reply_text(text)
+    await update.effective_message.reply_text(
+        text,
+        reply_markup=main_menu_keyboard(),
+        parse_mode="Markdown",
+    )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await start(update, context)
+    text = (
+        "ℹ️ **Elena AI Help & Quick Actions**\n\n"
+        "• Send text in any language to chat.\n"
+        "• Send photos or voice notes for multimodal understanding.\n"
+        "• Use the buttons below to manage your session:"
+    )
+    await update.effective_message.reply_text(
+        text,
+        reply_markup=main_menu_keyboard(),
+        parse_mode="Markdown",
+    )
 
 
 async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -79,36 +103,94 @@ async def settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for model_id, info in MODELS.items():
         label = f"{'✓ ' if model_id == current else ''}{info['name']}"
         rows.append([InlineKeyboardButton(label, callback_data=f"model:{model_id}")])
+    rows.append([InlineKeyboardButton("🔙 Back to Menu", callback_data="btn:menu")])
     await update.effective_message.reply_text(
-        f"Choose a Gemini model. Current: {current}",
+        f"⚙️ **Choose a Gemini model**\nCurrent: `{current}`",
         reply_markup=InlineKeyboardMarkup(rows),
+        parse_mode="Markdown",
     )
 
 
-async def choose_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    if not query.data.startswith("model:"):
-        return
-    model_id = query.data.split(":", 1)[1]
-    if model_id not in MODELS:
-        await query.edit_message_text("That model is not configured.")
-        return
+    data = query.data or ""
     key = f"{query.message.chat_id}:{query.from_user.id}"
-    await asyncio.to_thread(set_model, key, model_id)
-    await query.edit_message_text(f"✅ Model changed to {MODELS[model_id]['name']}.")
+
+    if data.startswith("model:"):
+        model_id = data.split(":", 1)[1]
+        if model_id not in MODELS:
+            await query.edit_message_text("That model is not configured.")
+            return
+        await asyncio.to_thread(set_model, key, model_id)
+        await query.edit_message_text(
+            f"✅ Model changed to **{MODELS[model_id]['name']}**.",
+            reply_markup=main_menu_keyboard(),
+            parse_mode="Markdown",
+        )
+        return
+
+    if data == "btn:settings":
+        current = await asyncio.to_thread(get_model, key) or DEFAULT_MODEL
+        rows = []
+        for model_id, info in MODELS.items():
+            label = f"{'✓ ' if model_id == current else ''}{info['name']}"
+            rows.append([InlineKeyboardButton(label, callback_data=f"model:{model_id}")])
+        rows.append([InlineKeyboardButton("🔙 Back to Menu", callback_data="btn:menu")])
+        await query.edit_message_text(
+            f"⚙️ **Choose a Gemini model**\nCurrent: `{current}`",
+            reply_markup=InlineKeyboardMarkup(rows),
+            parse_mode="Markdown",
+        )
+    elif data == "btn:new":
+        await asyncio.to_thread(clear_history, key)
+        await query.edit_message_text(
+            "🆕 **New conversation started.** What would you like to talk about?",
+            reply_markup=main_menu_keyboard(),
+            parse_mode="Markdown",
+        )
+    elif data == "btn:clear":
+        await asyncio.to_thread(clear_history, key)
+        await query.edit_message_text(
+            "🧹 **Your conversation history has been cleared.**",
+            reply_markup=main_menu_keyboard(),
+            parse_mode="Markdown",
+        )
+    elif data == "btn:help":
+        await query.edit_message_text(
+            "ℹ️ **Elena AI Help & Quick Actions**\n\n"
+            "• Send text in any language to chat.\n"
+            "• Send photos or voice notes for multimodal understanding.\n"
+            "• Use the buttons below to manage your session:",
+            reply_markup=main_menu_keyboard(),
+            parse_mode="Markdown",
+        )
+    elif data == "btn:menu":
+        await query.edit_message_text(
+            "👋 **Elena AI Menu**\n\nTap a button below to get started:",
+            reply_markup=main_menu_keyboard(),
+            parse_mode="Markdown",
+        )
 
 
 async def new_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     key = conversation_key(update)
     await asyncio.to_thread(clear_history, key)
-    await update.effective_message.reply_text("🆕 New conversation started. What would you like to talk about?")
+    await update.effective_message.reply_text(
+        "🆕 **New conversation started.** What would you like to talk about?",
+        reply_markup=main_menu_keyboard(),
+        parse_mode="Markdown",
+    )
 
 
 async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     key = conversation_key(update)
     await asyncio.to_thread(clear_history, key)
-    await update.effective_message.reply_text("🧹 Your conversation history has been cleared.")
+    await update.effective_message.reply_text(
+        "🧹 **Your conversation history has been cleared.**",
+        reply_markup=main_menu_keyboard(),
+        parse_mode="Markdown",
+    )
 
 
 def should_reply_in_group(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -225,7 +307,7 @@ def main():
     app.add_handler(CommandHandler("settings", settings))
     app.add_handler(CommandHandler("new", new_conversation))
     app.add_handler(CommandHandler("clear", clear_command))
-    app.add_handler(CallbackQueryHandler(choose_model))
+    app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, handle_voice))

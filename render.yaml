@@ -13,3 +13,4 @@ services:
         sync: false
       - key: MAX_HISTORY
         value: 20
+
