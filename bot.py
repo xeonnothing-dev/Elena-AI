@@ -111,7 +111,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def new_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     key = conversation_key(update)
     await asyncio.to_thread(clear_history, key)
-    await update.effective_message.reply_text("🆕 New conversation started. What would you like to talk about?")
+    await update.effective_message.reply_text("New conversation started. What would you like to talk about?")
 
 
 async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
